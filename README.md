@@ -62,7 +62,37 @@ gcc --version              # needed for C extensions
 composer require madeiteasytools/multiverse
 ```
 
-### 1. Setup Python Environment
+### 1. Check Server Requirements
+
+Before setting up, verify your server has everything needed:
+
+```bash
+php artisan multiverse:check --lang=python
+```
+
+Example output:
+
+```
+  Multiverse Requirements Check
+
+  PHP
+  ✓ PHP 8.4.0
+  ✓ proc_open is available
+
+  Python
+  ✓ Python 3.12.3
+  ✓ Version 3.12 meets 3.8+ requirement
+  ✓ python3-venv available
+  ✓ gcc 13.2.0
+  ✓ g++ 13.2.0
+  ✓ pip available in venv
+
+  ✓ All requirements met. You are good to go!
+```
+
+Each failing check prints the exact `apt install` command to fix it. Returns exit code `1` if any requirement is missing — useful in CI/CD pipelines.
+
+### 2. Setup Python Environment
 
 ```bash
 php artisan multiverse:install --lang=python
@@ -70,7 +100,7 @@ php artisan multiverse:install --lang=python
 
 This creates a `multiverse/` directory, sets up a virtual environment, and automatically updates your `.gitignore`.
 
-### 2. Publish Configuration (Optional)
+### 3. Publish Configuration (Optional)
 
 ```bash
 php artisan vendor:publish --tag=multiverse-config
@@ -280,13 +310,14 @@ Block dangerous patterns in worker code:
 
 ## 🛠️ Artisan Commands
 
-| Command                                | Description                |
-| -------------------------------------- | -------------------------- |
-| `multiverse:install --lang=python`     | Setup language environment |
-| `multiverse:update --lang=python`      | Update dependencies        |
-| `multiverse:worker name --lang=python` | Create new worker          |
-| `multiverse:run worker`                | Run worker manually        |
-| `multiverse:clear [worker]`            | Kill zombie processes      |
+| Command                                | Description                     |
+| -------------------------------------- | ------------------------------- |
+| `multiverse:check --lang=python`       | Check server requirements       |
+| `multiverse:install --lang=python`     | Setup language environment      |
+| `multiverse:update --lang=python`      | Update dependencies             |
+| `multiverse:worker name --lang=python` | Create new worker               |
+| `multiverse:run worker`                | Run worker manually             |
+| `multiverse:clear [worker]`            | Kill zombie processes           |
 
 ---
 
