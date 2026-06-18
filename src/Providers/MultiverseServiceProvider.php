@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MadeItEasyTools\Multiverse\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use MadeItEasyTools\Multiverse\Console\Commands\CheckRequirementsCommand;
 use MadeItEasyTools\Multiverse\Console\Commands\ClearWorkerCommand;
 use MadeItEasyTools\Multiverse\Console\Commands\InstallLanguageCommand;
 use MadeItEasyTools\Multiverse\Console\Commands\MakeWorkerCommand;
@@ -36,6 +37,7 @@ class MultiverseServiceProvider extends ServiceProvider
             ], 'multiverse-config');
 
             $this->commands([
+                CheckRequirementsCommand::class,
                 MakeWorkerCommand::class,
                 RunWorkerCommand::class,
                 InstallLanguageCommand::class,
