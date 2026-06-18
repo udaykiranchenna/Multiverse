@@ -35,15 +35,21 @@ class MakeWorkerCommand extends Command
                 placeholder: 'e.g. email_parser',
                 required: true,
                 validate: fn (string $value) => match (true) {
-                    strlen($value) < 3 => 'The name must be at least 3 characters.',
+                    \strlen($value) < 3 => 'The name must be at least 3 characters.',
+                    ! preg_match('/^[a-zA-Z0-9_-]+$/', $value) => 'Only letters, numbers, dashes, and underscores are allowed.',
                     default => null
                 }
             );
         }
 
+        if (! preg_match('/^[a-zA-Z0-9_-]+$/', $name)) {
+            $this->error("Invalid worker name [{$name}]. Only letters, numbers, dashes, and underscores are allowed.");
+            return;
+        }
+
         // Place in workers/{lang}/{name}
-        $workersCount = config('multiverse.workers_path', base_path('multiverse'));
-        $workerPath = $workersCount.'/'.$lang.'/'.$name;
+        $workersPath = config('multiverse.workers_path', base_path('multiverse'));
+        $workerPath = $workersPath.'/'.$lang.'/'.$name;
 
         if (File::exists($workerPath)) {
             $this->error("Worker [{$name}] already exists at {$workerPath}!");
@@ -53,14 +59,23 @@ class MakeWorkerCommand extends Command
 
         File::makeDirectory($workerPath, 0755, true);
 
-        $this->createPythonStubs($workerPath, $name);
+        $created = match ($lang) {
+            'python' => $this->createPythonStubs($workerPath),
+            default  => false,
+        };
+
+        if ($created === false) {
+            File::deleteDirectory($workerPath);
+            $this->error("No stub generator for language [{$lang}]. Worker directory removed.");
+            return;
+        }
 
         $this->info("Worker [{$name}] created successfully.");
         $this->info("Path: {$workerPath}");
         $this->comment("Don't forget to run dependencies installation if needed (will happen auto on first run if configured, or you can do it manually).");
     }
 
-    protected function createPythonStubs(string $path, string $name): void
+    protected function createPythonStubs(string $path): void
     {
         // main.py
         $stub = <<<'PYTHON'

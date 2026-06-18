@@ -12,6 +12,11 @@ interface LanguageDriver
     public function installDependencies(string $workerPath): void;
 
     /**
+     * Return the default entry-point filename for this language (e.g. main.py, main.js).
+     */
+    public function defaultScriptName(): string;
+
+    /**
      * Get the command to run the worker file.
      *
      * @return array<int, string>

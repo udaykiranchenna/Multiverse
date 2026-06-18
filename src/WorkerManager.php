@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MadeItEasyTools\Multiverse;
 
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Container\Container;
 use InvalidArgumentException;
 use MadeItEasyTools\Multiverse\Contracts\LanguageDriver;
 use MadeItEasyTools\Multiverse\Process\ProcessRunner;
@@ -23,7 +24,8 @@ class WorkerManager
 
     public function __construct(
         protected ConfigRepository $config,
-        protected ProcessRunner $processRunner
+        protected ProcessRunner $processRunner,
+        protected Container $container
     ) {}
 
     /**
@@ -58,13 +60,10 @@ class WorkerManager
             throw new InvalidArgumentException("Invalid worker name [{$workerName}]. Only alphanumeric characters, dashes, and underscores are allowed.");
         }
 
-        // 1. Resolve Driver (currently defaulting to python or configurable)
-        // For MVP, lets assume we check the config or file extension.
-        // We'll require 'driver' in payload or config for now, or just default to python.
         $driverName = $payload['driver'] ?? 'python';
+        unset($payload['driver']);
         $driver = $this->driver($driverName);
 
-        // 2. Determine paths
         // 2. Determine paths
         $workersPath = $this->config->get('multiverse.workers_path');
 
@@ -74,44 +73,36 @@ class WorkerManager
         // Fallback to flat structure: workers/worker_name
         $flatPath = rtrim($workersPath, '/').'/'.$workerName;
 
-        $scriptName = 'main.py'; // Default
+        $scriptName = $driver->defaultScriptName();
 
         if (is_dir($driverSpecificPath)) {
             $workerPath = $driverSpecificPath;
         } elseif (is_dir($flatPath)) {
             $workerPath = $flatPath;
         } else {
-            // Fallback: check if it's just a file
-            if (file_exists($driverSpecificPath.'.py')) {
+            // Fallback: check if it's just a single file (use driver's extension)
+            $ext = pathinfo($scriptName, PATHINFO_EXTENSION);
+            if (file_exists("{$driverSpecificPath}.{$ext}")) {
                 $workerPath = dirname($driverSpecificPath);
-                $scriptName = basename($driverSpecificPath).'.py';
-            } elseif (file_exists($flatPath.'.py')) {
+                $scriptName = basename($driverSpecificPath).".{$ext}";
+            } elseif (file_exists("{$flatPath}.{$ext}")) {
                 $workerPath = dirname($flatPath);
-                $scriptName = basename($flatPath).'.py';
+                $scriptName = basename($flatPath).".{$ext}";
             } else {
                 throw new RuntimeException("Worker not found: {$workerName} (checked {$driverSpecificPath}, {$flatPath})");
             }
         }
 
-        // Performance Optimization:
-        // We do NOT call $driver->installDependencies() here anymore.
-        // Dependency installation should be handled by the deployment pipeline
-        // or explicitly via 'php artisan multiverse:install' or a dedicated update command.
-        // This avoids a 300ms+ overhead on every worker execution.
-        // if ($this->config->get('multiverse.auto_sync_dependencies', false)) {
-        //    $driver->installDependencies($workerPath);
-        // }
-
         // 3. Build Command
         $command = $driver->getRunCommand($workerPath, $scriptName);
 
         // 4. Encode Payload
-        $input = json_encode($payload);
+        $input = json_encode($payload, JSON_THROW_ON_ERROR);
 
-        // 5. Get Timeout (from payload override or config default)
+        // 5. Get Timeout (payload _timeout overrides config default)
         $timeout = $payload['_timeout'] ?? $this->config->get('multiverse.timeout', null);
 
-        // 6. Execute with error handling and logging
+        // 6. Execute with structured error handling
         try {
             $output = $this->processRunner->run($command, $workerPath, null, $input, $timeout);
         } catch (\Symfony\Component\Process\Exception\ProcessTimedOutException $e) {
@@ -120,9 +111,7 @@ class WorkerManager
                 $driverName,
                 $timeout
             );
-
             $this->logWorkerError($workerName, $payload, $exception);
-
             throw $exception;
         } catch (RuntimeException $e) {
             $exception = new \MadeItEasyTools\Multiverse\Exceptions\WorkerException(
@@ -132,23 +121,16 @@ class WorkerManager
                 $e->getCode(),
                 $e->getMessage()
             );
-
             $this->logWorkerError($workerName, $payload, $exception);
-
             throw $exception;
         }
 
         // 7. Parse Output
-        $result = json_decode($output, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            // If output is not JSON, return raw
-            return [
-                'status' => 'success', // or unknown
-                'raw_output' => $output,
-            ];
+        try {
+            return json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return ['status' => 'error', 'raw_output' => $output];
         }
-
-        return $result;
     }
 
     /**
@@ -182,10 +164,8 @@ class WorkerManager
             throw new InvalidArgumentException("Driver [{$driver}] not configured or class not found.");
         }
 
-        $this->drivers[$driver] = app($driverClass);
+        $this->drivers[$driver] = $this->container->make($driverClass);
 
         return $this->drivers[$driver];
     }
-
-    // Queue method removed as per user request to let developer handle job dispatching manually if needed.
 }

@@ -25,14 +25,11 @@ class RunWorkerCommand extends Command
             $payloadStr = '{}';
         }
 
-        $payload = json_decode($payloadStr, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            // Fallback: try to see if it's a simple string that didn't get quoted?
-            // Or just error out more descriptively
-            $this->error('Invalid JSON payload: '.json_last_error_msg());
-            $this->error('Payload was: '.$payloadStr);
-
+        try {
+            $payload = json_decode($payloadStr, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            $this->error("Invalid JSON payload: {$e->getMessage()}");
+            $this->error("Payload was: {$payloadStr}");
             return;
         }
 
@@ -49,7 +46,7 @@ class RunWorkerCommand extends Command
             $this->line(json_encode($result, JSON_PRETTY_PRINT));
 
         } catch (\Exception $e) {
-            $this->error('Execution Failed: '.$e->getMessage());
+            $this->error("Execution Failed: {$e->getMessage()}");
         }
     }
 }

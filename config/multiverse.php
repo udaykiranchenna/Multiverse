@@ -15,6 +15,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Worker Timeout
+    |--------------------------------------------------------------------------
+    |
+    | Maximum seconds a worker process may run before being killed.
+    | Set to null for no limit (not recommended in production).
+    |
+    */
+    'timeout' => 60,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pip Timeout
+    |--------------------------------------------------------------------------
+    |
+    | Maximum seconds pip install/upgrade may run before being killed.
+    |
+    */
+    'pip_timeout' => 300,
+
+    /*
+    |--------------------------------------------------------------------------
     | Language Drivers
     |--------------------------------------------------------------------------
     |
@@ -52,7 +73,7 @@ return [
     |
     */
     'security' => [
-        'scan_for_dangerous_code' => false,
+        'scan_for_dangerous_code' => true,
         'dangerous_patterns' => [
             'rm -rf' => 'destructive deletion (rm -rf) detected',
             'shutil.rmtree' => 'directory deletion (shutil) detected',

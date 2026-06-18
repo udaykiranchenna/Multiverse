@@ -50,7 +50,7 @@ class InstallLanguageCommand extends Command
         // 1. Check if python3 is available
         try {
             $this->processRunner->run(['python3', '--version']);
-        } catch (\Exception $e) {
+        } catch (\Exception) {
             error('Python 3 is not installed on your system.');
             error('Please install Python 3 first: https://www.python.org/downloads/');
 
@@ -58,9 +58,10 @@ class InstallLanguageCommand extends Command
         }
 
         // 2. Create directory structure
-        $pythonRoot = base_path(config('multiverse.python.root_path', 'multiverse/python'));
-        $venvPath = base_path(config('multiverse.python.venv_path', 'multiverse/python/venv'));
-        $reqPath = base_path(config('multiverse.python.requirements_path', 'multiverse/python/requirements.txt'));
+        $toAbsolute = fn (string $path): string => str_starts_with($path, '/') ? $path : base_path($path);
+        $pythonRoot = $toAbsolute(config('multiverse.python.root_path', 'multiverse/python'));
+        $venvPath   = $toAbsolute(config('multiverse.python.venv_path', 'multiverse/python/venv'));
+        $reqPath    = $toAbsolute(config('multiverse.python.requirements_path', 'multiverse/python/requirements.txt'));
 
         if (! File::exists($pythonRoot)) {
             File::makeDirectory($pythonRoot, 0755, true);
@@ -89,10 +90,11 @@ class InstallLanguageCommand extends Command
 
         // 5. Upgrade pip
         info('Upgrading pip...');
-        $pipPath = $venvPath.'/bin/pip';
+        $pipPath    = $venvPath.'/bin/pip';
+        $pipTimeout = config('multiverse.pip_timeout', 300);
 
         spin(
-            fn () => $this->processRunner->run([$pipPath, 'install', '--upgrade', 'pip']),
+            fn () => $this->processRunner->run([$pipPath, 'install', '--upgrade', 'pip'], null, null, null, $pipTimeout),
             'Upgrading pip...'
         );
 
@@ -102,7 +104,7 @@ class InstallLanguageCommand extends Command
         info('Installing dependencies from requirements.txt...');
 
         spin(
-            fn () => $this->processRunner->run([$pipPath, 'install', '-r', $reqPath]),
+            fn () => $this->processRunner->run([$pipPath, 'install', '-r', $reqPath], null, null, null, $pipTimeout),
             'Installing dependencies...'
         );
 
@@ -126,10 +128,8 @@ class InstallLanguageCommand extends Command
      */
     protected function updateGitignore(): void
     {
-        // Get workers path from config (already includes base_path)
         $workersPath = config('multiverse.workers_path');
 
-        // If it's a relative path, make it absolute
         if (! str_starts_with($workersPath, '/')) {
             $workersPath = base_path($workersPath);
         }
@@ -159,18 +159,30 @@ __pycache__/
 Thumbs.db
 GITIGNORE;
 
-        // Ensure multiverse directory exists
         if (! File::isDirectory($workersPath)) {
             File::makeDirectory($workersPath, 0755, true);
         }
 
-        // Always create/update .gitignore in multiverse folder
-        $result = File::put($gitignorePath, $multiverseRules);
+        if (File::exists($gitignorePath)) {
+            $existing = File::get($gitignorePath);
+            $missing = array_filter(
+                explode("\n", $multiverseRules),
+                fn (string $line) => $line !== '' && ! str_contains($existing, $line)
+            );
+            if (empty($missing)) {
+                info("✓ .gitignore already up-to-date at: {$gitignorePath}");
 
-        if ($result !== false && File::exists($gitignorePath)) {
-            info("✓ Created .gitignore at: {$gitignorePath}");
+                return;
+            }
+            $result = File::append($gitignorePath, PHP_EOL.implode(PHP_EOL, $missing).PHP_EOL);
         } else {
-            error("Failed to create .gitignore at: {$gitignorePath}");
+            $result = File::put($gitignorePath, $multiverseRules);
+        }
+
+        if ($result !== false) {
+            info("✓ Updated .gitignore at: {$gitignorePath}");
+        } else {
+            error("Failed to update .gitignore at: {$gitignorePath}");
         }
     }
 

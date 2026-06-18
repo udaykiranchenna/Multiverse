@@ -46,9 +46,10 @@ class UpdateLanguageCommand extends Command
     {
         info('🐍 Updating Python dependencies...');
 
-        $venvPath = base_path(config('multiverse.python.venv_path', 'multiverse/python/venv'));
-        $reqPath = base_path(config('multiverse.python.requirements_path', 'multiverse/python/requirements.txt'));
-        $pipPath = $venvPath.'/bin/pip';
+        $toAbsolute = fn (string $path): string => str_starts_with($path, '/') ? $path : base_path($path);
+        $venvPath = $toAbsolute(config('multiverse.python.venv_path', 'multiverse/python/venv'));
+        $reqPath  = $toAbsolute(config('multiverse.python.requirements_path', 'multiverse/python/requirements.txt'));
+        $pipPath  = $venvPath.'/bin/pip';
 
         // Check if environment exists
         if (! is_dir($venvPath)) {

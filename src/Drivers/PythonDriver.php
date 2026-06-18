@@ -17,10 +17,10 @@ class PythonDriver implements LanguageDriver
 
     public function installDependencies(string $workerPath): void
     {
-        // Get Configured Paths for Shared Environment
-        $pythonRoot = base_path(Config::get('multiverse.python.root_path', 'multiverse/python'));
-        $venvPath = base_path(Config::get('multiverse.python.venv_path', 'multiverse/python/venv'));
-        $reqPath = base_path(Config::get('multiverse.python.requirements_path', 'multiverse/python/requirements.txt'));
+        $toAbsolute = fn (string $path): string => str_starts_with($path, '/') ? $path : base_path($path);
+        $pythonRoot = $toAbsolute(Config::get('multiverse.python.root_path', 'multiverse/python'));
+        $venvPath   = $toAbsolute(Config::get('multiverse.python.venv_path', 'multiverse/python/venv'));
+        $reqPath    = $toAbsolute(Config::get('multiverse.python.requirements_path', 'multiverse/python/requirements.txt'));
 
         // Check if venv exists (should be created by multiverse:install)
         if (! is_dir($venvPath)) {
@@ -40,6 +40,11 @@ class PythonDriver implements LanguageDriver
         $this->processRunner->run([$pipPath, 'install', '-r', $reqPath], $pythonRoot);
     }
 
+    public function defaultScriptName(): string
+    {
+        return 'main.py';
+    }
+
     public function getRunCommand(string $workerPath, string $scriptName): array
     {
         $fullPath = $workerPath.'/'.$scriptName;
@@ -56,8 +61,8 @@ class PythonDriver implements LanguageDriver
             }
         }
 
-        // Ignore the workerPath's local venv, forcing the shared one.
-        $venvPath = base_path(Config::get('multiverse.python.venv_path', 'multiverse/python/venv'));
+        $toAbsolute = fn (string $path): string => str_starts_with($path, '/') ? $path : base_path($path);
+        $venvPath = $toAbsolute(Config::get('multiverse.python.venv_path', 'multiverse/python/venv'));
         $venvPython = $venvPath.'/bin/python';
 
         if (file_exists($venvPython)) {

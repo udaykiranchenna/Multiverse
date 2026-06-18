@@ -9,7 +9,7 @@ use MadeItEasyTools\Multiverse\WorkerManager;
 
 /**
  * @method static array run(string $workerName, array $payload = [])
- * @method static \MadeItEasyTools\MultiLanguage\Contracts\LanguageDriver driver(string $driver)
+ * @method static \MadeItEasyTools\Multiverse\Contracts\LanguageDriver driver(string $driver)
  *
  * @see \MadeItEasyTools\Multiverse\WorkerManager
  */

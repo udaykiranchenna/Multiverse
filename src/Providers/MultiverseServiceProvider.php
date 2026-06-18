@@ -20,7 +20,7 @@ class MultiverseServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../../config/multiverse.php', 'multiverse');
 
         $this->app->singleton(WorkerManager::class, function ($app) {
-            return new WorkerManager($app['config'], $app[ProcessRunner::class]);
+            return new WorkerManager($app['config'], $app[ProcessRunner::class], $app);
         });
 
         $this->app->bind(ProcessRunner::class, function ($app) {

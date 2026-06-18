@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MadeItEasyTools\Multiverse\Process;
 
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 
@@ -28,6 +29,11 @@ class ProcessRunner
         $process->run();
 
         if (! $process->isSuccessful()) {
+            Log::error('Multiverse worker process failed', [
+                'command' => $command,
+                'exit_code' => $process->getExitCode(),
+                'stderr' => $process->getErrorOutput(),
+            ]);
             throw new RuntimeException(
                 $process->getErrorOutput() ?: $process->getOutput(),
                 $process->getExitCode() ?? 1

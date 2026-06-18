@@ -19,6 +19,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.0] - 2026-06-18
+
+### Added
+
+- Laravel 13 support (`illuminate/support: ^13.0`)
+- Symfony Process 8.x support (`symfony/process: ^8.0`)
+- `defaultScriptName(): string` method added to `LanguageDriver` interface — drivers now own their default script filename
+- `PythonDriver` implements `defaultScriptName()` returning `'main.py'`
+- `WorkerManager` reads default script name from the resolved driver instead of hardcoding `'main.py'`
+- `config('multiverse.timeout')` key (default `60` seconds) — applied to every worker execution via `ProcessRunner`
+- `config('multiverse.pip_timeout')` key (default `300` seconds) — applied to pip install/upgrade calls
+- `Log::error()` in `ProcessRunner` captures command, exit code, and stderr on every process failure
+- `$container` injected into `WorkerManager`; `app()` global replaced with `$this->container->make()`
+
+### Fixed
+
+- **Critical** — Worker execution had no timeout; a hung Python script would block PHP-FPM indefinitely
+- **Critical** — Non-JSON worker output (tracebacks, print statements) was returned with `status: 'success'`; now returns `status: 'error'`
+- **Critical** — `json_encode($payload)` silently passed `false` to the worker on unserializable payloads (INF, NAN, resources); now throws `JsonException`
+- **Warning** — `driver` key was serialized into the worker's stdin payload, leaking routing internals to the script; it is now stripped before encoding
+- **Warning** — `make:worker` prompt validated name length only; path traversal names like `../../etc/passwd` were accepted; regex `/^[a-zA-Z0-9_-]+$/` now enforced on both the interactive prompt and the CLI argument
+- `make:worker` — creating a worker for an unsupported language no longer leaves an empty directory behind
+- `make:worker` — misnamed variable `$workersCount` corrected to `$workersPath`
+- `multiverse:install` — `.gitignore` was unconditionally overwritten on re-runs, destroying custom entries; now append-only (missing lines are added, existing lines preserved)
+- `multiverse:install` / `multiverse:update` — `base_path()` was applied twice to already-absolute config paths; `$toAbsolute` guard added
+- `WorkerManager` — flat-file fallback extension derived from `pathinfo($scriptName, PATHINFO_EXTENSION)` instead of hardcoded `.py`
+- `WorkerManager` — `json_decode` now uses `JSON_THROW_ON_ERROR` with `try/catch`, consistent with encode
+- `RunWorkerCommand` — `json_last_error()` check replaced with `JSON_THROW_ON_ERROR` + `try/catch`
+- `MultiWorker` facade — `@method` and `@see` PHPDoc corrected from stale `MultiLanguage` namespace to `Multiverse`
+
+### Breaking Changes
+
+- `LanguageDriver` interface now requires `defaultScriptName(): string` — any custom driver must implement this method
+- `WorkerManager` constructor now requires a `Container` argument as its third parameter
+
+### Upgrade Guide from 1.0.0
+
+1. Update `composer.json`: `"madeiteasytools/multiverse": "^2.0"`
+2. If you have a custom `LanguageDriver` implementation, add `public function defaultScriptName(): string` returning the default entry-point filename (e.g. `'main.py'`)
+3. Publish and review the updated config: `php artisan vendor:publish --tag=multiverse-config`
+   - New key `timeout` (default `60`) — set to `null` to disable (not recommended in production)
+   - New key `pip_timeout` (default `300`) — time allowed for pip install/upgrade
+
+---
+
 ## [1.0.0] - 2026-02-08
 
 ### Added
