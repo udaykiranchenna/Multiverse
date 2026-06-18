@@ -24,6 +24,38 @@ Bridge the gap between PHP's web dominance and Python's data supremacy. Run "Wor
 
 ---
 
+## 🖥️ Server Requirements
+
+Before installing, ensure your server meets these requirements:
+
+### PHP
+- PHP 8.1+
+- `proc_open` must **not** be in `disable_functions` in `php.ini`
+
+> **Shared hosting / HestiaCP / cPanel**: These panels often disable `proc_open` in PHP-FPM pools. You must remove it from `disable_functions` in your pool config or global `php.ini` for the package to work. See [Troubleshooting](#-troubleshooting).
+
+### Python Workers
+If you plan to use Python workers, the server also needs:
+
+| Package | Purpose | Install (Ubuntu/Debian) |
+|---|---|---|
+| `python3` (3.8+) | Python runtime | pre-installed on most servers |
+| `python3-venv` | Virtual environment support | `apt install python3.X-venv` |
+| `python3-dev` | Python headers (for C extensions) | `apt install python3.X-dev` |
+| `build-essential` | C/C++ compiler (`gcc`, `g++`) | `apt install build-essential` |
+
+> Replace `X` with your Python version (e.g. `python3.12-venv` for Python 3.12).
+> `python3-dev` and `build-essential` are only needed if your `requirements.txt` includes packages that compile from source (e.g. `pyswisseph`, `numpy`, `Pillow`).
+
+**Quick check:**
+```bash
+python3 --version          # should be 3.8+
+python3 -m venv --help     # should not error
+gcc --version              # needed for C extensions
+```
+
+---
+
 ## 📦 Installation
 
 ```bash
@@ -342,6 +374,59 @@ $data = Multiverse::run('scraper', [
 ---
 
 ## 🐛 Troubleshooting
+
+### proc_open Disabled
+
+```
+LogicException: The Process class relies on proc_open, which is not available on your PHP installation.
+```
+
+`proc_open` is disabled in your PHP configuration. This is common on shared hosting and control panels (HestiaCP, cPanel, Plesk).
+
+**Fix — check what's disabled:**
+```bash
+php -r "echo ini_get('disable_functions');"
+```
+
+**Fix — global php.ini** (affects all sites):
+```bash
+# Remove proc_open from disable_functions in /etc/php/X.Y/fpm/php.ini
+# Then restart PHP-FPM
+systemctl restart php8.4-fpm
+```
+
+**Fix — per-site PHP-FPM pool** (safer, affects only your site):
+
+Edit your pool config (e.g. `/etc/php/8.4/fpm/pool.d/yoursite.conf`) and add:
+```ini
+php_admin_value[disable_functions] = pcntl_fork,pcntl_exec,...,exec,system,passthru,shell_exec,popen
+```
+Omit `proc_open` from the list. Note: pool config can only add to the global list, not remove from it — so `proc_open` must also be absent from the global `php.ini`.
+
+### python3-venv Not Installed
+
+```
+RuntimeException: The virtual environment was not created successfully because ensurepip is not available.
+```
+
+```bash
+apt install python3.12-venv -y   # replace 12 with your Python version
+rm -rf multiverse/python/venv
+php artisan multiverse:install --lang=python
+```
+
+### C Extension Build Fails (Python.h / g++ not found)
+
+```
+fatal error: Python.h: No such file or directory
+error: command 'x86_64-linux-gnu-g++' failed: No such file or directory
+```
+
+```bash
+apt install python3.12-dev build-essential -y
+rm -rf multiverse/python/venv
+php artisan multiverse:install --lang=python
+```
 
 ### Worker Not Found
 
