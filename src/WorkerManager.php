@@ -6,20 +6,19 @@ namespace MadeItEasyTools\Multiverse;
 
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
+use JsonException;
 use MadeItEasyTools\Multiverse\Contracts\LanguageDriver;
+use MadeItEasyTools\Multiverse\Exceptions\TimeoutException;
+use MadeItEasyTools\Multiverse\Exceptions\WorkerException;
 use MadeItEasyTools\Multiverse\Process\ProcessRunner;
 use RuntimeException;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
-/**
- * WorkerManager
- *
- * Core class responsible for executing workers written in other languages.
- * Handles driver resolution, path management, security checks, and process execution.
- */
 class WorkerManager
 {
-    /** @var array<string, LanguageDriver> Cached language driver instances */
+    /** @var array<string, LanguageDriver> */
     protected array $drivers = [];
 
     public function __construct(
@@ -29,143 +28,173 @@ class WorkerManager
     ) {}
 
     /**
-     * Execute a worker with the given payload.
+     * Execute trusted worker code with JSON data supplied over stdin.
      *
-     * This method:
-     * 1. Validates the worker name for security
-     * 2. Resolves the appropriate language driver
-     * 3. Locates the worker script
-     * 4. Executes the worker with the provided payload
-     * 5. Returns the parsed JSON output
+     * @param  array<string, mixed>  $payload
+     * @param  array{driver?: string, timeout?: int|float, env?: array<string, string|false>}  $options  Trusted execution options, never request data.
+     * @return array<string, mixed>
      *
-     * @param  string  $workerName  The name of the worker to execute (alphanumeric, dashes, underscores only)
-     * @param  array<string, mixed>  $payload  Data to pass to the worker as JSON
-     * @return array<string, mixed> The worker's output parsed as an associative array
-     *
-     * @throws InvalidArgumentException If worker name contains invalid characters
-     * @throws RuntimeException If worker is not found or execution fails
-     *
-     * @example
-     * ```php
-     * $result = $workerManager->run('image_processor', [
-     *     'image_url' => 'https://example.com/image.jpg',
-     *     'filter' => 'blur'
-     * ]);
-     * ```
+     * @throws InvalidArgumentException
+     * @throws WorkerException
      */
-    public function run(string $workerName, array $payload = []): array
+    public function run(string $workerName, array $payload = [], array $options = []): array
     {
-        // SECURITY: Prevent Path Traversal
-        if (! preg_match('/^[a-zA-Z0-9_-]+$/', $workerName)) {
-            throw new InvalidArgumentException("Invalid worker name [{$workerName}]. Only alphanumeric characters, dashes, and underscores are allowed.");
+        $this->validateName($workerName, 'worker');
+
+        if (array_key_exists('driver', $payload) || array_key_exists('_timeout', $payload)) {
+            throw new InvalidArgumentException('Move driver and _timeout out of the payload. Use the third argument: ["driver" => "python", "timeout" => 60].');
         }
 
-        $driverName = $payload['driver'] ?? 'python';
-        unset($payload['driver']);
+        if (array_diff(array_keys($options), ['driver', 'timeout', 'env']) !== []) {
+            throw new InvalidArgumentException('Unknown worker execution option. Supported options: driver, timeout, env.');
+        }
+
+        $driverName = array_key_exists('driver', $options) ? $options['driver'] : 'python';
+        if (! is_string($driverName)) {
+            throw new InvalidArgumentException('The driver name must be a string.');
+        }
+
+        $timeout = $this->resolveTimeout($options);
         $driver = $this->driver($driverName);
-
-        // 2. Determine paths
-        $workersPath = $this->config->get('multiverse.workers_path');
-
-        // Try language-specific subfolder first: workers/python/worker_name
-        $driverSpecificPath = rtrim($workersPath, '/').'/'.$driverName.'/'.$workerName;
-
-        // Fallback to flat structure: workers/worker_name
-        $flatPath = rtrim($workersPath, '/').'/'.$workerName;
-
-        $scriptName = $driver->defaultScriptName();
-
-        if (is_dir($driverSpecificPath)) {
-            $workerPath = $driverSpecificPath;
-        } elseif (is_dir($flatPath)) {
-            $workerPath = $flatPath;
-        } else {
-            // Fallback: check if it's just a single file (use driver's extension)
-            $ext = pathinfo($scriptName, PATHINFO_EXTENSION);
-            if (file_exists("{$driverSpecificPath}.{$ext}")) {
-                $workerPath = dirname($driverSpecificPath);
-                $scriptName = basename($driverSpecificPath).".{$ext}";
-            } elseif (file_exists("{$flatPath}.{$ext}")) {
-                $workerPath = dirname($flatPath);
-                $scriptName = basename($flatPath).".{$ext}";
-            } else {
-                throw new RuntimeException("Worker not found: {$workerName} (checked {$driverSpecificPath}, {$flatPath})");
-            }
-        }
-
-        // 3. Build Command
-        $command = $driver->getRunCommand($workerPath, $scriptName);
-
-        // 4. Encode Payload
+        [$workerPath, $scriptName] = $this->resolveScript($workerName, $driverName, $driver);
         $input = json_encode($payload, JSON_THROW_ON_ERROR);
 
-        // 5. Get Timeout (payload _timeout overrides config default)
-        $timeout = $payload['_timeout'] ?? $this->config->get('multiverse.timeout', null);
-
-        // 6. Execute with structured error handling
-        try {
-            $output = $this->processRunner->run($command, $workerPath, null, $input, $timeout);
-        } catch (\Symfony\Component\Process\Exception\ProcessTimedOutException $e) {
-            $exception = new \MadeItEasyTools\Multiverse\Exceptions\TimeoutException(
-                $workerName,
-                $driverName,
-                $timeout
-            );
-            $this->logWorkerError($workerName, $payload, $exception);
-            throw $exception;
-        } catch (RuntimeException $e) {
-            $exception = new \MadeItEasyTools\Multiverse\Exceptions\WorkerException(
-                "Worker [{$workerName}] failed: ".$e->getMessage(),
-                $workerName,
-                $driverName,
-                $e->getCode(),
-                $e->getMessage()
-            );
-            $this->logWorkerError($workerName, $payload, $exception);
-            throw $exception;
+        if (array_key_exists('env', $options) && ! is_array($options['env'])) {
+            throw new InvalidArgumentException('The worker environment must be an array.');
         }
 
-        // 7. Parse Output
         try {
-            return json_decode($output, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return ['status' => 'error', 'raw_output' => $output];
+            $command = $driver->getRunCommand($workerPath, $scriptName);
+            $output = $this->processRunner->run($command, $workerPath, $options['env'] ?? null, $input, $timeout);
+
+            try {
+                $result = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+            } catch (JsonException) {
+                throw new RuntimeException('Worker returned invalid JSON.');
+            }
+
+            if (! is_array($result)) {
+                throw new RuntimeException('Worker must return a JSON object or array.');
+            }
+
+            return $result;
+        } catch (ProcessTimedOutException) {
+            $exception = new TimeoutException($workerName, $driverName, $timeout);
+            $this->logWorkerError($exception);
+
+            throw $exception;
+        } catch (RuntimeException $exception) {
+            $failure = new WorkerException(
+                "Worker [{$workerName}] failed. Check the worker implementation and execution limits.",
+                $workerName,
+                $driverName,
+                $exception->getCode()
+            );
+            $this->logWorkerError($failure);
+
+            throw $failure;
         }
     }
 
     /**
-     * Log worker errors to Laravel log if logging is enabled.
+     * Resolve a configured driver; names cannot address nested config values.
+     *
+     * @throws InvalidArgumentException
      */
-    protected function logWorkerError(string $workerName, array $payload, \Exception $exception): void
-    {
-        if (! $this->config->get('multiverse.logging.enabled', true)) {
-            return;
-        }
-
-        \Illuminate\Support\Facades\Log::channel(
-            $this->config->get('multiverse.logging.channel', 'stack')
-        )->error("Multiverse Worker Failed: {$workerName}", [
-            'worker' => $workerName,
-            'payload' => $payload,
-            'error' => $exception->getMessage(),
-            'exception' => get_class($exception),
-        ]);
-    }
-
     public function driver(string $driver): LanguageDriver
     {
+        $this->validateName($driver, 'driver');
+
         if (isset($this->drivers[$driver])) {
             return $this->drivers[$driver];
         }
 
         $driverClass = $this->config->get("multiverse.drivers.{$driver}");
 
-        if (! $driverClass || ! class_exists($driverClass)) {
-            throw new InvalidArgumentException("Driver [{$driver}] not configured or class not found.");
+        if (! is_string($driverClass) || ! is_a($driverClass, LanguageDriver::class, true)) {
+            throw new InvalidArgumentException('The requested driver is not configured as a language driver.');
         }
 
-        $this->drivers[$driver] = $this->container->make($driverClass);
+        return $this->drivers[$driver] = $this->container->make($driverClass);
+    }
 
-        return $this->drivers[$driver];
+    protected function validateName(string $name, string $kind): void
+    {
+        if (! preg_match('/\A[a-zA-Z0-9_-]{1,128}\z/', $name)) {
+            throw new InvalidArgumentException("Invalid {$kind} name. Use 1 to 128 letters, numbers, dashes, or underscores.");
+        }
+    }
+
+    /** @param array<string, mixed> $options */
+    protected function resolveTimeout(array $options): float
+    {
+        $maximum = $this->config->get('multiverse.max_timeout', 300);
+        $timeout = array_key_exists('timeout', $options)
+            ? $options['timeout']
+            : $this->config->get('multiverse.timeout', 60);
+
+        foreach ([$maximum, $timeout] as $value) {
+            if ((! is_int($value) && ! is_float($value)) || ! is_finite((float) $value) || $value <= 0) {
+                throw new InvalidArgumentException('Worker timeout and max_timeout must be finite, positive numbers.');
+            }
+        }
+
+        if ($timeout > $maximum) {
+            throw new InvalidArgumentException('Worker timeout exceeds the configured max_timeout.');
+        }
+
+        return (float) $timeout;
+    }
+
+    /** @return array{string, string} */
+    protected function resolveScript(string $workerName, string $driverName, LanguageDriver $driver): array
+    {
+        $configuredRoot = $this->config->get('multiverse.workers_path');
+        $root = is_string($configuredRoot) ? realpath($configuredRoot) : false;
+
+        if ($root === false || ! is_dir($root)) {
+            throw new RuntimeException('The configured workers directory does not exist.');
+        }
+
+        $scriptName = $driver->defaultScriptName();
+        $extension = pathinfo($scriptName, PATHINFO_EXTENSION);
+        $languagePath = $root.'/'.$driverName.'/'.$workerName;
+        $flatPath = $root.'/'.$workerName;
+        $candidates = [
+            $languagePath.'/'.$scriptName,
+            $flatPath.'/'.$scriptName,
+            $languagePath.'.'.$extension,
+            $flatPath.'.'.$extension,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $script = realpath($candidate);
+
+            if ($script === false || ! is_file($script)) {
+                continue;
+            }
+
+            if (! str_starts_with($script, rtrim($root, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR)) {
+                throw new RuntimeException('Worker scripts must resolve inside the configured workers directory.');
+            }
+
+            return [dirname($script), basename($script)];
+        }
+
+        throw new RuntimeException("Worker [{$workerName}] was not found.");
+    }
+
+    protected function logWorkerError(WorkerException $exception): void
+    {
+        if (! $this->config->get('multiverse.logging.enabled', true)) {
+            return;
+        }
+
+        Log::channel($this->config->get('multiverse.logging.channel', 'stack'))->error('Multiverse worker failed', [
+            'worker' => $exception->getWorkerName(),
+            'driver' => $exception->getDriver(),
+            'exit_code' => $exception->getExitCode(),
+            'exception' => $exception::class,
+        ]);
     }
 }

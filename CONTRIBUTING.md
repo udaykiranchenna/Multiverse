@@ -1,6 +1,6 @@
 # Contributing to MadeItEasyTools/Multiverse
 
-Thank you for considering contributing to MadeItEasyTools/Multiverse! This document provides guidelines and instructions for contributing.
+Thank you for considering contributing to MadeItEasyTools/Multiverse! This document provides guidelines and instructions for contributing. Multiverse is a Python-only integration for Laravel. It was originally planned for multiple programming languages, but we have decided to focus exclusively on Python; other language runtimes are no longer planned.
 
 ## Table of Contents
 
@@ -39,13 +39,13 @@ Before creating bug reports, please check existing issues to avoid duplicates.
 **Environment:**
 
 - PHP 8.2
-- Laravel 10.x
+- Laravel 12.x
 - Ubuntu 22.04
 
 **Steps to Reproduce:**
 
 1. Create worker with large JSON payload (>1MB)
-2. Run `MultiWorker::run('my_worker', $largePayload)`
+2. Run `Multiverse::run('my_worker', $largePayload)`
 3. Observe error
 
 **Expected:** Worker executes successfully
@@ -55,10 +55,8 @@ Before creating bug reports, please check existing issues to avoid duplicates.
 
 ```php
 $payload = ['data' => str_repeat('x', 1000000)];
-MultiWorker::run('test_worker', $payload);
+Multiverse::run('test_worker', $payload);
 ```
-````
-
 ````
 
 ### Suggesting Enhancements
@@ -72,22 +70,23 @@ Enhancement suggestions are tracked as GitHub issues.
 - Alternative solutions considered
 
 **Example:**
-```markdown
-## Enhancement: Add Node.js Support
+
+````markdown
+## Enhancement: Improve Python worker diagnostics
 
 **Use Case:**
-I need to run JavaScript workers for server-side rendering.
+I need to identify which dependency is missing when preparing a Python worker.
 
 **Current Limitation:**
-Only Python is supported.
+The environment check does not explain which package the worker requires.
 
 **Proposed Solution:**
-Add `NodeDriver` class similar to `PythonDriver`.
+Improve Python environment diagnostics while keeping application secrets out of logs.
 
 **Implementation Ideas:**
-- Use `npm` for dependency management
-- Support `package.json`
-- Execute with `node` command
+- Inspect the shared requirements file.
+- Report actionable setup guidance.
+- Add regression tests for missing dependencies.
 ````
 
 ### Contributing Code
@@ -107,7 +106,7 @@ Add `NodeDriver` class similar to `PythonDriver`.
 
 ### Prerequisites
 
-- PHP 8.1+
+- PHP 8.2+ (and the PHP version required by your Laravel release)
 - Composer
 - Python 3.8+ (for testing Python workers)
 - Git
@@ -148,7 +147,7 @@ packages/MadeItEasyTools/Multiverse/
 ├── src/
 │   ├── Commands/               # Artisan commands
 │   ├── Contracts/              # Interfaces
-│   ├── Drivers/                # Language drivers
+│   ├── Drivers/                # Python execution driver
 │   ├── Facades/                # Laravel facades
 │   ├── Process/                # Process execution
 │   ├── WorkerManager.php       # Core manager class
@@ -392,67 +391,18 @@ Brief description of changes
 
 ---
 
-## Adding New Language Drivers
+## Improving Python Support
 
-To add support for a new language (e.g., Node.js):
+Contributions should improve the Laravel-to-Python workflow: worker execution, virtual environments, dependency installation, diagnostics, documentation, and regression coverage.
 
-### 1. Create Driver Class
+Keep the Python-only scope when proposing changes. The existing `LanguageDriver` interface and `--lang=python` option remain for API compatibility; they are not a roadmap for additional language runtimes.
 
-```php
-<?php
+For changes to worker execution:
 
-namespace MadeItEasyTools\Multiverse\Drivers;
-
-use MadeItEasyTools\Multiverse\Contracts\LanguageDriver;
-
-class NodeDriver implements LanguageDriver
-{
-    public function installDependencies(string $workerPath): void
-    {
-        // Install from package.json
-    }
-
-    public function getRunCommand(string $workerPath, string $scriptName): array
-    {
-        return ['node', $workerPath . '/' . $scriptName];
-    }
-}
-```
-
-### 2. Update Configuration
-
-```php
-// config/multiverse.php
-
-'drivers' => [
-    'python' => PythonDriver::class,
-    'node' => NodeDriver::class, // Add this
-],
-
-'node' => [
-    'root_path' => 'multiverse/node',
-    'package_json_path' => 'multiverse/node/package.json',
-],
-```
-
-### 3. Update Install Command
-
-Add Node.js installation logic to `InstallLanguageCommand`.
-
-### 4. Write Tests
-
-```php
-public function test_node_driver_executes_worker(): void
-{
-    // Test implementation
-}
-```
-
-### 5. Update Documentation
-
-- Add to README.md
-- Add examples to EXAMPLES.md
-- Update API.md
+1. Follow the existing `PythonDriver` and `WorkerManager` conventions.
+2. Preserve the JSON stdin/stdout contract and execution safeguards.
+3. Add tests for the changed behavior and relevant failure modes.
+4. Update the README, API reference, examples, and changelog as needed.
 
 ---
 

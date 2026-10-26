@@ -1,11 +1,13 @@
 # Python Support Improvements - Implementation Summary
 
+Multiverse is now focused exclusively on Python. The original plan to support multiple programming languages has been dropped. The features below describe the Python worker integration.
+
 ## ✅ Completed Features
 
 ### 1. Exception Handling
 
 - **WorkerException**: Base exception class for all worker-related errors
-  - Stores worker name, driver, exit code, and stderr output
+  - Stores worker name, driver, and exit code; manager-generated failures omit raw stderr
   - Provides getter methods for debugging
 - **TimeoutException**: Specific exception for timeout scenarios
   - Extends WorkerException
@@ -13,11 +15,11 @@
 
 ### 2. Flexible Timeout Configuration
 
-- **Default**: Unlimited (`null`) - workers run until completion
+- **Default**: 60 seconds, capped by `max_timeout` (300 seconds by default). Timeouts must be finite and positive.
 - **Global Config**: Set in `config/multiverse.php`
-- **Per-Call Override**: Pass `_timeout` in payload
+- **Per-Call Override**: Pass trusted `timeout` in the third argument; legacy payload controls are rejected
   ```php
-  MultiWorker::run('video_render', ['_timeout' => 300]); // 5 minutes
+  Multiverse::run('video_render', [], ['timeout' => 300]); // 5 minutes
   ```
 
 ### 3. Automated Error Logging
@@ -26,8 +28,7 @@
 - **Channel Selection**: Use any Laravel log channel
 - **Rich Context**: Logs include:
   - Worker name
-  - Full payload (for reproduction)
-  - Error message
+  - Driver and exit code
   - Exception class
 
 ### 4. Manual Process Cleanup
@@ -48,7 +49,7 @@
 ### 5. Improved ProcessRunner
 
 - **Timeout Support**: Accepts optional timeout parameter
-- **Better Error Messages**: Includes both stderr and stdout
+- **Safe Failures**: Excludes raw stdout/stderr from failure messages and logs
 - **Exit Code Preservation**: Maintains process exit codes for debugging
 
 ## Configuration
@@ -56,8 +57,9 @@
 Add to your `config/multiverse.php`:
 
 ```php
-// Timeout (null = unlimited)
-'timeout' => null,
+// Finite, positive timeouts
+'timeout' => 60,
+'max_timeout' => 300,
 
 // Logging
 'logging' => [
@@ -71,17 +73,17 @@ Add to your `config/multiverse.php`:
 ### Basic Worker Execution
 
 ```php
-use MadeItEasyTools\Multiverse\Facades\MultiWorker;
+use MadeItEasyTools\Multiverse\Facades\Multiverse;
 use MadeItEasyTools\Multiverse\Exceptions\WorkerException;
 try {
-    $result = MultiWorker::run('image_processor', [
+    $result = Multiverse::run('image_processor', [
         'image_url' => 'https://example.com/image.jpg'
     ]);
 } catch (WorkerException $e) {
     // Worker failed - check logs for details
     Log::error('Image processing failed', [
         'worker' => $e->getWorkerName(),
-        'stderr' => $e->getErrorOutput(),
+        'exit_code' => $e->getExitCode(),
     ]);
 }
 ```
@@ -89,11 +91,10 @@ try {
 ### With Custom Timeout
 
 ```php
-// Long-running task with 10-minute timeout
-$result = MultiWorker::run('video_render', [
+// Long-running task within the configured maximum
+$result = Multiverse::run('video_render', [
     'video_path' => '/path/to/video.mp4',
-    '_timeout' => 600, // 10 minutes
-]);
+], ['timeout' => 300]);
 ```
 
 ### Cleanup Zombie Processes
@@ -120,7 +121,7 @@ php artisan multiverse:clear video_render
 
 ## Next Steps
 
-1. **Publish Updated Config**: Run `php artisan vendor:publish --tag=multiverse-config --force`
+1. **Publish Updated Config**: Merge the new keys from `config/multiverse.php` into existing application configuration
 2. **Test Error Scenarios**: Create a worker that intentionally fails to verify logging
-3. **Test Timeout**: Create a worker with `time.sleep(10)` and set `_timeout => 2`
+3. **Test Timeout**: Create a worker with `time.sleep(10)` and pass `['timeout' => 2]` as the third argument
 4. **Test Cleanup**: Run a long worker and use `multiverse:clear` to kill it

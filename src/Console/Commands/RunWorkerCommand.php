@@ -9,44 +9,52 @@ use MadeItEasyTools\Multiverse\Facades\Multiverse;
 
 class RunWorkerCommand extends Command
 {
-    protected $signature = 'multiverse:run 
-                            {worker : The name of the worker to run} 
-                            {--payload= : JSON payload to send to the worker}';
+    protected $signature = 'multiverse:run
+                            {worker : The worker name}
+                            {--payload= : JSON object to send to stdin}
+                            {--lang=python : Python execution driver (python only)}
+                            {--timeout= : Positive timeout in seconds, capped by max_timeout}';
 
-    protected $description = 'Run a multi-language worker manually';
+    protected $description = 'Run a Python worker manually';
 
-    public function handle(): void
+    public function handle(): int
     {
-        $workerName = $this->argument('worker');
-        $payloadStr = $this->option('payload');
+        try {
+            $payload = json_decode($this->option('payload') ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            $this->error('Invalid JSON payload.');
 
-        // Handle case where payload option is null or empty string despite default
-        if (empty($payloadStr)) {
-            $payloadStr = '{}';
+            return self::FAILURE;
+        }
+
+        if (! is_array($payload)) {
+            $this->error('The payload must be a JSON object or array.');
+
+            return self::FAILURE;
+        }
+
+        $options = ['driver' => $this->option('lang')];
+        $timeout = $this->option('timeout');
+
+        if ($timeout !== null) {
+            if (! is_numeric($timeout)) {
+                $this->error('The timeout must be a positive number.');
+
+                return self::FAILURE;
+            }
+
+            $options['timeout'] = (float) $timeout;
         }
 
         try {
-            $payload = json_decode($payloadStr, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\JsonException $e) {
-            $this->error("Invalid JSON payload: {$e->getMessage()}");
-            $this->error("Payload was: {$payloadStr}");
-            return;
-        }
+            $result = Multiverse::run($this->argument('worker'), $payload, $options);
+            $this->line(json_encode($result, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT));
 
-        $this->info("Running worker [{$workerName}]...");
+            return self::SUCCESS;
+        } catch (\Exception $exception) {
+            $this->error('Execution failed: '.$exception->getMessage());
 
-        try {
-            $startTime = microtime(true);
-            $result = Multiverse::run($workerName, $payload);
-            $duration = round((microtime(true) - $startTime) * 1000, 2);
-
-            $this->info("Worker finished in {$duration}ms");
-
-            $this->info('Output:');
-            $this->line(json_encode($result, JSON_PRETTY_PRINT));
-
-        } catch (\Exception $e) {
-            $this->error("Execution Failed: {$e->getMessage()}");
+            return self::FAILURE;
         }
     }
 }

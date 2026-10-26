@@ -1,5 +1,7 @@
 # API Reference
 
+Multiverse runs trusted Python workers from Laravel. The project originally planned support for multiple programming languages; it now focuses exclusively on Python, and other language runtimes are no longer on the roadmap.
+
 ## Table of Contents
 
 - [WorkerManager](#workermanager)
@@ -12,26 +14,29 @@
 
 ## WorkerManager
 
-The core class for executing workers.
+The core class for executing Python workers.
 
 ### Methods
 
-#### `run(string $workerName, array $payload = []): array`
+#### `run(string $workerName, array $payload = [], array $options = []): array`
 
 Execute a worker with the given payload.
 
 **Parameters:**
 
 - `$workerName` (string): Name of the worker (alphanumeric, dashes, underscores only)
-- `$payload` (array): Associative array of data to pass to the worker
+- `$payload` (array): Associative array of data to pass to stdin. Legacy `driver` and `_timeout` control keys are rejected.
+- `$options` (array): Trusted `driver`, `timeout`, and `env` options. Never populate this argument from request data.
 
 **Returns:**
 
-- `array`: The worker's JSON output as an associative array
+- `array`: The worker's JSON object or array. Invalid output throws; it is not returned as `raw_output`.
 
 **Throws:**
 
-- `InvalidArgumentException`: If worker name contains invalid characters
+- `InvalidArgumentException`: Invalid names, options, timeouts, environment entries, or oversized input
+- `WorkerException`: Process failures, output limits, invalid JSON, or scalar JSON output
+- `TimeoutException`: The worker exceeded its finite timeout
 - `RuntimeException`: If worker not found or execution fails
 
 **Example:**
@@ -53,11 +58,11 @@ if ($result['status'] === 'success') {
 
 #### `driver(string $driver): LanguageDriver`
 
-Get or create a language driver instance.
+Get or create the Python execution driver. The `LanguageDriver` interface name is retained for compatibility; it does not imply support for other runtimes.
 
 **Parameters:**
 
-- `$driver` (string): Driver name (e.g., 'python', 'node')
+- `$driver` (string): Use `'python'`, the supported driver.
 
 **Returns:**
 
@@ -71,21 +76,21 @@ Get or create a language driver instance.
 
 ## Facades
 
-### MultiWorker
+### Multiverse
 
 Convenient facade for accessing WorkerManager.
 
 **Example:**
 
 ```php
-use MadeItEasyTools\Multiverse\Facades\MultiWorker;
+use MadeItEasyTools\Multiverse\Facades\Multiverse;
 
 // Simple usage
-$result = MultiWorker::run('echo_worker', ['message' => 'Hello']);
+$result = Multiverse::run('echo_worker', ['message' => 'Hello']);
 
 // With error handling
 try {
-    $result = MultiWorker::run('complex_worker', $data);
+    $result = Multiverse::run('complex_worker', $data);
 } catch (\Exception $e) {
     Log::error('Worker failed: ' . $e->getMessage());
 }
@@ -97,7 +102,7 @@ try {
 
 ### multiverse:install
 
-Setup a language environment.
+Set up the shared Python virtual environment.
 
 **Signature:**
 
@@ -107,12 +112,11 @@ php artisan multiverse:install --lang=python
 
 **Options:**
 
-- `--lang=LANGUAGE`: Language to install (required)
-    - Supported: `python`, `node` (coming soon)
+- `--lang=python`: Required; Python is the only supported runtime.
 
 **What it does:**
 
-1. Creates language directory structure
+1. Creates the Python directory structure
 2. Sets up virtual environment
 3. Creates requirements file
 4. Installs base dependencies
@@ -127,7 +131,7 @@ php artisan multiverse:install --lang=python
 
 ### multiverse:update
 
-Update language dependencies.
+Install dependencies from the shared Python requirements file.
 
 **Signature:**
 
@@ -137,7 +141,7 @@ php artisan multiverse:update --lang=python
 
 **Options:**
 
-- `--lang=LANGUAGE`: Language to update (required)
+- `--lang=python`: Required; Python is the only supported runtime.
 
 **What it does:**
 
@@ -153,23 +157,23 @@ php artisan multiverse:update --lang=python
 
 ---
 
-### make:worker
+### multiverse:worker
 
-Create a new worker.
+Create a new Python worker.
 
 **Signature:**
 
 ```bash
-php artisan make:worker {name} --lang=python
+php artisan multiverse:worker {name} --lang=python
 ```
 
 **Arguments:**
 
-- `name`: Worker name (required)
+- `name`: Worker name (optional; prompts if omitted)
 
 **Options:**
 
-- `--lang=LANGUAGE`: Language for the worker (optional, prompts if not provided)
+- `--lang=python`: Python is the only supported runtime; prompts if omitted.
 
 **What it does:**
 
@@ -180,7 +184,7 @@ php artisan make:worker {name} --lang=python
 **Example:**
 
 ```bash
-php artisan make:worker image_processor --lang=python
+php artisan multiverse:worker image_processor --lang=python
 ```
 
 Creates:
@@ -195,14 +199,14 @@ multiverse/
 
 ---
 
-### worker:run
+### multiverse:run
 
-Execute a worker manually.
+Execute a Python worker manually.
 
 **Signature:**
 
 ```bash
-php artisan worker:run {worker} --payload=JSON
+php artisan multiverse:run {worker} --payload=JSON
 ```
 
 **Arguments:**
@@ -212,11 +216,13 @@ php artisan worker:run {worker} --payload=JSON
 **Options:**
 
 - `--payload=JSON`: JSON payload to pass (optional, defaults to `{}`)
+- `--lang=python`: Python execution driver (defaults to `python`)
+- `--timeout=SECONDS`: Finite positive timeout, capped by `max_timeout`
 
 **Example:**
 
 ```bash
-php artisan worker:run image_processor --payload='{"image_url": "https://example.com/img.jpg"}'
+php artisan multiverse:run image_processor --payload='{"image_url": "https://example.com/img.jpg"}'
 ```
 
 ---
@@ -243,12 +249,11 @@ Root directory for all workers.
 **Type:** `array<string, string>`  
 **Default:** `['python' => PythonDriver::class]`
 
-Mapping of language names to driver classes.
+The Python execution driver registration. The `drivers` key is retained for compatibility; Python is the package's only supported runtime.
 
 ```php
 'drivers' => [
     'python' => \MadeItEasyTools\Multiverse\Drivers\PythonDriver::class,
-    'node' => \MadeItEasyTools\Multiverse\Drivers\NodeDriver::class,
 ],
 ```
 
@@ -273,14 +278,27 @@ Python-specific configuration.
 - `root_path`: Python workers directory
 - `venv_path`: Virtual environment location
 - `requirements_path`: Requirements file location
+- `allow_system_python`: Explicitly allow system Python when the venv is unavailable (default `false`).
 
 ---
+
+#### Execution limits and logging
+
+- `timeout`: Finite positive worker timeout, default 60 seconds.
+- `max_timeout`: Maximum timeout callers can request, default 300 seconds.
+- `pip_timeout`: Finite positive dependency installation/update timeout, default 300 seconds.
+- `process.max_input_bytes`: Positive stdin size limit, default 10 MiB.
+- `process.max_output_bytes`: Positive combined stdout/stderr size limit, default 10 MiB.
+- `process.env_allowlist`: Parent environment variable names to inherit. Other variables are removed. Trusted `options.env` values override this environment.
+- `logging.enabled` and `logging.channel`: Control metadata-only failure logging. Payloads and process output are excluded; manager-generated exception messages are sanitized and `getErrorOutput()` is `null`.
+
+Scripts must resolve inside `workers_path`. Workers retain the PHP user's OS permissions; use external sandboxing for untrusted workloads. These limits do not enforce OS memory or global concurrency limits.
 
 #### `security`
 
 **Type:** `array`
 
-Security scanning configuration.
+Best-effort entry-point substring checks. This does not inspect imports or sandbox worker code.
 
 ```php
 'security' => [
@@ -294,7 +312,7 @@ Security scanning configuration.
 
 **Keys:**
 
-- `scan_for_dangerous_code` (bool): Enable/disable security scanning
+- `scan_for_dangerous_code` (bool): Enable/disable the advisory substring check
 - `dangerous_patterns` (array): Map of patterns to error messages
 
 **Adding custom patterns:**
@@ -313,7 +331,7 @@ Security scanning configuration.
 
 ### LanguageDriver Interface
 
-All language drivers must implement this interface.
+The Python driver implements this internal execution contract. Its name is retained from the original multi-language design; adding other language runtimes is outside the package scope.
 
 ```php
 namespace MadeItEasyTools\Multiverse\Contracts;
@@ -324,6 +342,9 @@ interface LanguageDriver
      * Install dependencies for a worker.
      */
     public function installDependencies(string $workerPath): void;
+
+    /** Return the Python entry-point filename, main.py. */
+    public function defaultScriptName(): string;
 
     /**
      * Get the command to run a worker script.
@@ -453,7 +474,7 @@ Thrown when:
 
 ```php
 try {
-    MultiWorker::run('../../../etc/passwd', []);
+    Multiverse::run('../../../etc/passwd', []);
 } catch (InvalidArgumentException $e) {
     // "Invalid worker name"
 }
@@ -474,7 +495,7 @@ Thrown when:
 
 ```php
 try {
-    MultiWorker::run('nonexistent_worker', []);
+    Multiverse::run('nonexistent_worker', []);
 } catch (RuntimeException $e) {
     // "Worker not found: nonexistent_worker"
 }
@@ -499,14 +520,14 @@ Currently, the package does not fire Laravel events. This may be added in future
 ### Unit Testing Workers
 
 ```php
-use MadeItEasyTools\Multiverse\Facades\MultiWorker;
+use MadeItEasyTools\Multiverse\Facades\Multiverse;
 use Tests\TestCase;
 
 class ImageProcessorTest extends TestCase
 {
     public function test_it_processes_images()
     {
-        $result = MultiWorker::run('image_processor', [
+        $result = Multiverse::run('image_processor', [
             'image_url' => 'https://example.com/test.jpg',
             'filter' => 'blur'
         ]);
@@ -563,7 +584,7 @@ Typical execution times:
 
 ## Version History
 
-### v1.0.0 (Current)
+### v1.0.0
 
 - Initial release
 - Python support
@@ -571,10 +592,7 @@ Typical execution times:
 - Shared virtual environments
 - Artisan commands
 
-### Roadmap
-
-- Node.js support
-- Go support
+### Python Worker Roadmap
 - Worker events
 - Performance monitoring
 - Worker versioning

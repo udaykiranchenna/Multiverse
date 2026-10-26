@@ -1,6 +1,6 @@
 {
     "name": "madeiteasytools/multiverse",
-    "description": "Multi-Language Worker Integration for Laravel - Run Python, Node.js and more from your Laravel app",
+    "description": "Run trusted Python workers from Laravel with JSON input and output",
     "type": "library",
     "license": "MIT",
     "authors": [
@@ -40,9 +40,8 @@
         "phpunit/phpunit": "^11.5.3|^12.0"
     },
     "scripts": {
-        "test": "../../../vendor/bin/phpunit",
-        "test:unit": "../../../vendor/bin/phpunit --testsuite=Unit",
-        "test:feature": "../../../vendor/bin/phpunit --testsuite=Feature",
-        "test:coverage": "../../../vendor/bin/phpunit --coverage-html coverage"
+        "test": "phpunit",
+        "test:unit": "phpunit --testsuite=Unit",
+        "test:coverage": "phpunit --coverage-html coverage"
     }
 }

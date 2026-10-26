@@ -1,8 +1,10 @@
 # MadeItEasyTools/Multiverse 🌌
 
-**Run Python, Node.js, and other languages natively inside your Laravel application.**
+**Run trusted Python workers from your Laravel application.**
 
-Bridge the gap between PHP's web dominance and Python's data supremacy. Run "Workers" written in other languages as if they were native Laravel classes.
+Multiverse connects Laravel to Python for data processing, image handling, machine learning, PDF generation, and other Python workloads. Send JSON from PHP, execute your Python worker, and receive a JSON result.
+
+> **Python-only direction:** Multiverse was originally planned to support multiple programming languages. We have decided to keep the package focused exclusively on Python. Support for other programming languages is no longer planned.
 
 [![Latest Version](https://img.shields.io/packagist/v/madeiteasytools/multiverse.svg?style=flat-square)](https://packagist.org/packages/madeiteasytools/multiverse)
 [![Laravel](https://img.shields.io/badge/Laravel-11%20%7C%2012%20%7C%2013-red?style=flat-square)](https://laravel.com)
@@ -13,14 +15,14 @@ Bridge the gap between PHP's web dominance and Python's data supremacy. Run "Wor
 ## ✨ Features
 
 - **🚀 Performance Optimized**: Sub-500ms execution times via pre-installed environments
-- **🛡️ Robust Error Handling**: Custom exceptions with detailed context
+- **🛡️ Robust Error Handling**: Custom exceptions with safe failure metadata
 - **⏱️ Configurable Timeouts**: Prevent hanging workers with flexible timeout options
-- **📊 Automatic Logging**: Failed workers logged with full context
+- **📊 Automatic Logging**: Failed workers logged with metadata only
 - **🧹 Process Management**: Manual cleanup command for zombie processes
-- **🐍 Python Native**: First-class support for Python 3.x
+- **🐍 Python Only**: A Laravel integration dedicated to Python workers
 - **📦 Shared Dependencies**: One `requirements.txt` for all workers
 - **🛠️ Artisan Integration**: `multiverse:worker`, `multiverse:install`, `multiverse:update`, `multiverse:clear`
-- **🔒 Security**: Built-in static analysis to block dangerous commands
+- **🔒 Safer Execution**: Finite timeouts, bounded I/O, restricted environment inheritance, and advisory code checks
 
 ---
 
@@ -29,13 +31,13 @@ Bridge the gap between PHP's web dominance and Python's data supremacy. Run "Wor
 Before installing, ensure your server meets these requirements:
 
 ### PHP
-- PHP 8.1+
+- PHP 8.2+ and the PHP version required by your Laravel release
 - `proc_open` must **not** be in `disable_functions` in `php.ini`
 
 > **Shared hosting / HestiaCP / cPanel**: These panels often disable `proc_open` in PHP-FPM pools. You must remove it from `disable_functions` in your pool config or global `php.ini` for the package to work. See [Troubleshooting](#-troubleshooting).
 
-### Python Workers
-If you plan to use Python workers, the server also needs:
+### Python
+A Python runtime and virtual environment support are required:
 
 | Package | Purpose | Install (Ubuntu/Debian) |
 |---|---|---|
@@ -155,33 +157,62 @@ $result = Multiverse::run('image_processor', [
 
 ---
 
+## Upgrading from v2.x to v3.0
+
+Version 3.0 focuses exclusively on Python and includes breaking execution and failure-handling changes.
+
+Move execution controls out of payload data:
+
+```php
+// v2.x
+Multiverse::run('image_processor', [
+    'image_url' => $imageUrl,
+    'driver' => 'python',
+    '_timeout' => 120,
+]);
+
+// v3.0
+Multiverse::run('image_processor', ['image_url' => $imageUrl], [
+    'driver' => 'python',
+    'timeout' => 120,
+]);
+```
+
+Before upgrading:
+
+- Merge the new keys from `config/multiverse.php` into your application's published config. Use a finite positive `timeout` no greater than `max_timeout`; unlimited timeouts are rejected.
+- Add required inherited variables to `process.env_allowlist` or pass specific trusted variables through `options.env`. Application secrets are excluded from subprocess environments by default.
+- Check the input and combined output budgets. Both default to 10 MiB and must be positive integers.
+- Create the shared Python virtual environment before running workers. System Python is used only when `python.allow_system_python` is explicitly enabled.
+- Catch `WorkerException` for process failures and invalid or scalar JSON output. Do not rely on `raw_output` or raw stderr in exceptions; automatic logs contain metadata only.
+- Keep scripts and symlink targets inside the configured workers directory.
+
+Ordinary two-argument calls with data-only payloads remain valid. See the [API reference](API.md) for execution options and [changelog](CHANGELOG.md) for the release details.
+
+---
+
 ## ⚙️ Advanced Features
 
 ### Timeout Configuration
 
-**Default (Unlimited):**
-
-```php
-// Workers run indefinitely by default
-$result = Multiverse::run('long_task', $data);
-```
-
-**Global Timeout:**
+The default timeout is **60 seconds**, with a configurable **300-second maximum**. Timeouts must be finite and positive; `null`, zero, negative values, and values above the maximum are rejected.
 
 ```php
 // config/multiverse.php
-'timeout' => 300, // 5 minutes for all workers
+'timeout' => 60,
+'max_timeout' => 300,
 ```
 
-**Per-Worker Timeout:**
+Pass trusted execution options as the third argument:
 
 ```php
-// Override timeout for specific execution
-$result = Multiverse::run('worker_name', [
-    'data' => 'value',
-    '_timeout' => 60  // 1 minute timeout
+$result = Multiverse::run('worker_name', ['data' => 'value'], [
+    'driver' => 'python',
+    'timeout' => 120,
 ]);
 ```
+
+Do not pass request data as execution options. The legacy `driver` and `_timeout` payload keys are rejected with a migration message. Use `driver` and `timeout` in the third argument instead.
 
 ### Error Handling
 
@@ -202,14 +233,14 @@ try {
     Log::error('Worker failed', [
         'worker' => $e->getWorkerName(),
         'exit_code' => $e->getExitCode(),
-        'error' => $e->getErrorOutput()
+        'driver' => $e->getDriver()
     ]);
 }
 ```
 
 ### Automatic Error Logging
 
-Failed workers are automatically logged to `storage/logs/laravel.log`:
+Failed workers are logged to the configured channel using metadata only. Payloads, HTML, stdout, stderr, and raw process exception messages are excluded. `WorkerException::getErrorOutput()` returns `null` for failures produced by the manager. Invalid JSON or scalar JSON output throws `WorkerException`; raw output is never returned on these failures.
 
 ```php
 // config/multiverse.php
@@ -222,14 +253,12 @@ Failed workers are automatically logged to `storage/logs/laravel.log`:
 **Log Entry Example:**
 
 ```
-[2026-02-08 12:00:00] local.ERROR: Multiverse Worker Failed: image_processor
+[2026-02-08 12:00:00] local.ERROR: Multiverse worker failed
 {
     "worker": "image_processor",
     "driver": "python",
-    "input": {"image_url": "..."},
-    "error": "ValueError: Invalid image format",
-    "exception": "MadeItEasyTools\\Multiverse\\Exceptions\\WorkerException",
-    "stderr": "Traceback (most recent call last)..."
+    "exit_code": 1,
+    "exception": "MadeItEasyTools\\Multiverse\\Exceptions\\WorkerException"
 }
 ```
 
@@ -282,21 +311,39 @@ All Python workers share one virtual environment, saving disk space and installa
 
 ## 🔒 Security
 
-### Static Code Analysis
+Multiverse executes **trusted application code** with the operating-system permissions of the PHP process. It is not a sandbox. A Python virtual environment isolates dependencies, not filesystem access, networking, or OS permissions.
 
-Block dangerous patterns in worker code:
+### Execution Limits and Environment
 
 ```php
-// config/multiverse.php
-'security' => [
-    'scan_for_dangerous_code' => true,
-    'dangerous_patterns' => [
-        'rm -rf' => 'destructive deletion detected',
-        'mkfs' => 'formatting command detected',
-        'eval(' => 'code execution detected',
+'process' => [
+    'max_input_bytes' => 10 * 1024 * 1024,
+    'max_output_bytes' => 10 * 1024 * 1024, // Combined stdout and stderr.
+    'env_allowlist' => [
+        'PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE',
     ],
 ],
 ```
+
+Input is rejected before launch when oversized. A process that exceeds its output budget or timeout is stopped. Byte limits must be positive integers. These limits do not impose an OS memory limit or a global concurrency limit, and they do not sandbox child processes started by a worker.
+
+Parent environment variables are removed unless allowlisted. Explicitly provide only the variables a trusted worker needs:
+
+```php
+$result = Multiverse::run('image_processor', $validatedData, [
+    'env' => ['WORKER_API_TOKEN' => config('services.worker.token')],
+]);
+```
+
+The shared virtual environment must exist. If deliberately using system Python, set `python.allow_system_python` to `true`; there is no automatic fallback. Dependency installation and updates use the finite `pip_timeout` setting. Pin and audit your Python requirements separately.
+
+Worker names and driver names allow only 1 to 128 letters, numbers, underscores, or dashes. Resolved script paths must stay under `workers_path`, including symlink targets. Keep worker code, dependencies, and parent directories owned by the deployment user and unwritable by web users. Path checks cannot protect code that an attacker can modify concurrently.
+
+### Advisory Pattern Checks
+
+`security.scan_for_dangerous_code` retains the existing substring checks on the entry point. These checks can catch accidental use of listed patterns; they do not inspect imports, prevent obfuscated code, or make untrusted code safe. Do not treat them as a security boundary.
+
+For untrusted workloads, use a separate service or OS/container sandbox with its own user, restricted mounts, network restrictions, resource limits, and process cleanup.
 
 ### Best Practices
 
@@ -313,10 +360,10 @@ Block dangerous patterns in worker code:
 | Command                                | Description                     |
 | -------------------------------------- | ------------------------------- |
 | `multiverse:check --lang=python`       | Check server requirements       |
-| `multiverse:install --lang=python`     | Setup language environment      |
+| `multiverse:install --lang=python`     | Setup Python environment      |
 | `multiverse:update --lang=python`      | Update dependencies             |
-| `multiverse:worker name --lang=python` | Create new worker               |
-| `multiverse:run worker`                | Run worker manually             |
+| `multiverse:worker name --lang=python` | Create a Python worker               |
+| `multiverse:run worker`                | Run a Python worker manually             |
 | `multiverse:clear [worker]`            | Kill zombie processes           |
 
 ---
@@ -329,8 +376,9 @@ return [
     // Worker storage path
     'workers_path' => base_path('multiverse'),
 
-    // Default timeout (null = unlimited)
-    'timeout' => null,
+    // Finite timeout and maximum, in seconds
+    'timeout' => 60,
+    'max_timeout' => 300,
 
     // Automatic error logging
     'logging' => [
@@ -346,9 +394,17 @@ return [
         'root_path' => 'multiverse/python',
         'venv_path' => 'multiverse/python/venv',
         'requirements_path' => 'multiverse/python/requirements.txt',
+        'allow_system_python' => false,
     ],
 
-    // Security settings
+    // Positive byte limits; env_allowlist controls inherited environment
+    'process' => [
+        'max_input_bytes' => 10 * 1024 * 1024,
+        'max_output_bytes' => 10 * 1024 * 1024,
+        'env_allowlist' => ['PATH', 'LANG', 'LC_ALL', 'TMPDIR'],
+    ],
+
+    // Advisory entry-point pattern checks
     'security' => [
         'scan_for_dangerous_code' => true,
         'dangerous_patterns' => [

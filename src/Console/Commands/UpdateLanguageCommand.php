@@ -14,9 +14,9 @@ use function Laravel\Prompts\spin;
 
 class UpdateLanguageCommand extends Command
 {
-    protected $signature = 'multiverse:update {--lang= : Language to update (python, node)}';
+    protected $signature = 'multiverse:update {--lang= : Python runtime to update (python only)}';
 
-    protected $description = 'Update dependencies for a language runtime environment';
+    protected $description = 'Update dependencies for the Python runtime environment';
 
     public function __construct(
         protected ProcessRunner $processRunner
@@ -38,7 +38,7 @@ class UpdateLanguageCommand extends Command
         match ($lang) {
             'python' => $this->updatePython(),
             'node' => $this->updateNode(),
-            default => error("Language [{$lang}] is not supported yet. Available: python, node")
+            default => error("Language [{$lang}] is not supported. Only Python is supported.")
         };
     }
 
@@ -48,8 +48,8 @@ class UpdateLanguageCommand extends Command
 
         $toAbsolute = fn (string $path): string => str_starts_with($path, '/') ? $path : base_path($path);
         $venvPath = $toAbsolute(config('multiverse.python.venv_path', 'multiverse/python/venv'));
-        $reqPath  = $toAbsolute(config('multiverse.python.requirements_path', 'multiverse/python/requirements.txt'));
-        $pipPath  = $venvPath.'/bin/pip';
+        $reqPath = $toAbsolute(config('multiverse.python.requirements_path', 'multiverse/python/requirements.txt'));
+        $pipPath = $venvPath.'/bin/pip';
 
         // Check if environment exists
         if (! is_dir($venvPath)) {
@@ -70,7 +70,7 @@ class UpdateLanguageCommand extends Command
 
         try {
             spin(
-                fn () => $this->processRunner->run([$pipPath, 'install', '-r', $reqPath]),
+                fn () => $this->processRunner->run([$pipPath, 'install', '-r', $reqPath], null, null, null, config('multiverse.pip_timeout', 300)),
                 'Processing requirements...'
             );
 
@@ -83,6 +83,6 @@ class UpdateLanguageCommand extends Command
 
     protected function updateNode(): void
     {
-        error('Node.js support is coming soon!');
+        error('Only Python is supported. Other language runtimes are not planned.');
     }
 }

@@ -12,7 +12,7 @@ interface LanguageDriver
     public function installDependencies(string $workerPath): void;
 
     /**
-     * Return the default entry-point filename for this language (e.g. main.py, main.js).
+     * Return the default entry-point filename for the Python worker (main.py).
      */
     public function defaultScriptName(): string;
 

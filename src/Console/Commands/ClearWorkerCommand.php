@@ -17,6 +17,12 @@ class ClearWorkerCommand extends Command
     {
         $workerName = $this->argument('worker');
 
+        if ($workerName !== null && ! preg_match('/\A[a-zA-Z0-9_-]{1,128}\z/', $workerName)) {
+            $this->error('Invalid worker name. Use 1 to 128 letters, numbers, dashes, or underscores.');
+
+            return self::FAILURE;
+        }
+
         if ($workerName) {
             $this->info("Searching for processes matching worker: {$workerName}");
             $killed = $this->killWorkerProcesses($workerName);
@@ -39,23 +45,31 @@ class ClearWorkerCommand extends Command
     protected function killWorkerProcesses(string $workerName): int
     {
         // Find processes containing the worker path
-        $pythonRoot = base_path(config('multiverse.python.root_path', 'multiverse/python'));
-        $searchPattern = "{$pythonRoot}/{$workerName}";
+        $pythonRoot = $this->pythonRoot();
+        $searchPattern = '(^|[[:space:]])'.preg_quote($pythonRoot.'/'.$workerName, '~').'(/|[[:space:]]|$)';
 
         return $this->findAndKillProcesses($searchPattern);
     }
 
     protected function killAllMultiverseProcesses(): int
     {
-        $pythonRoot = base_path(config('multiverse.python.root_path', 'multiverse/python'));
+        $pythonRoot = $this->pythonRoot();
 
-        return $this->findAndKillProcesses($pythonRoot);
+        return $this->findAndKillProcesses('(^|[[:space:]])'.preg_quote($pythonRoot, '~').'(/|[[:space:]]|$)');
+    }
+
+    protected function pythonRoot(): string
+    {
+        $path = config('multiverse.python.root_path', 'multiverse/python');
+
+        return rtrim(str_starts_with($path, '/') ? $path : base_path($path), '/');
     }
 
     protected function findAndKillProcesses(string $pattern): int
     {
         // Use pgrep to find processes matching the pattern
-        $process = new Process(['pgrep', '-f', $pattern]);
+        $process = new Process(['pgrep', '-f', '--', $pattern]);
+        $process->setTimeout(10);
         $process->run();
 
         if (! $process->isSuccessful()) {
@@ -71,7 +85,12 @@ class ClearWorkerCommand extends Command
         // Kill each process
         $killed = 0;
         foreach ($pids as $pid) {
-            $killProcess = new Process(['kill', '-9', $pid]);
+            if (! ctype_digit($pid) || (int) $pid <= 1 || (int) $pid === getmypid()) {
+                continue;
+            }
+
+            $killProcess = new Process(['kill', '-9', '--', $pid]);
+            $killProcess->setTimeout(10);
             $killProcess->run();
 
             if ($killProcess->isSuccessful()) {

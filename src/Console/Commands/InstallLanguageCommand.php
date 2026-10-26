@@ -15,9 +15,9 @@ use function Laravel\Prompts\warning;
 
 class InstallLanguageCommand extends Command
 {
-    protected $signature = 'multiverse:install {--lang= : Language to install (python, node)}';
+    protected $signature = 'multiverse:install {--lang= : Python runtime to install (python only)}';
 
-    protected $description = 'Install and setup a language runtime environment';
+    protected $description = 'Install and set up the Python runtime environment';
 
     public function __construct(
         protected ProcessRunner $processRunner
@@ -39,7 +39,7 @@ class InstallLanguageCommand extends Command
         match ($lang) {
             'python' => $this->installPython(),
             'node' => $this->installNode(),
-            default => error("Language [{$lang}] is not supported yet. Available: python, node")
+            default => error("Language [{$lang}] is not supported. Only Python is supported.")
         };
     }
 
@@ -60,8 +60,8 @@ class InstallLanguageCommand extends Command
         // 2. Create directory structure
         $toAbsolute = fn (string $path): string => str_starts_with($path, '/') ? $path : base_path($path);
         $pythonRoot = $toAbsolute(config('multiverse.python.root_path', 'multiverse/python'));
-        $venvPath   = $toAbsolute(config('multiverse.python.venv_path', 'multiverse/python/venv'));
-        $reqPath    = $toAbsolute(config('multiverse.python.requirements_path', 'multiverse/python/requirements.txt'));
+        $venvPath = $toAbsolute(config('multiverse.python.venv_path', 'multiverse/python/venv'));
+        $reqPath = $toAbsolute(config('multiverse.python.requirements_path', 'multiverse/python/requirements.txt'));
 
         if (! File::exists($pythonRoot)) {
             File::makeDirectory($pythonRoot, 0755, true);
@@ -90,7 +90,7 @@ class InstallLanguageCommand extends Command
 
         // 5. Upgrade pip
         info('Upgrading pip...');
-        $pipPath    = $venvPath.'/bin/pip';
+        $pipPath = $venvPath.'/bin/pip';
         $pipTimeout = config('multiverse.pip_timeout', 300);
 
         spin(
@@ -188,7 +188,6 @@ GITIGNORE;
 
     protected function installNode(): void
     {
-        error('Node.js support is coming soon!');
-        info('For now, only Python is supported.');
+        error('Only Python is supported. Other language runtimes are not planned.');
     }
 }

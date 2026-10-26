@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use MadeItEasyTools\Multiverse\Drivers\PythonDriver;
 
 return [
     /*
@@ -19,10 +20,12 @@ return [
     |--------------------------------------------------------------------------
     |
     | Maximum seconds a worker process may run before being killed.
-    | Set to null for no limit (not recommended in production).
+    | Must be a finite, positive number no greater than max_timeout.
     |
     */
     'timeout' => 60,
+
+    'max_timeout' => 300,
 
     /*
     |--------------------------------------------------------------------------
@@ -36,15 +39,14 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Language Drivers
+    | Python Driver
     |--------------------------------------------------------------------------
     |
-    | supported language drivers and their implementation classes.
+    | Python execution driver. The config key is retained for compatibility.
     |
     */
     'drivers' => [
-        'python' => \MadeItEasyTools\Multiverse\Drivers\PythonDriver::class,
-        // 'node' => \MadeItEasyTools\Multiverse\Drivers\NodeDriver::class,
+        'python' => PythonDriver::class,
     ],
 
     /*
@@ -52,9 +54,8 @@ return [
     | Python Configuration
     |--------------------------------------------------------------------------
     |
-    | Configure the python environment strategy.
-    | 'venv_path': null (default) -> means isolated venv per worker.
-    | 'venv_path': 'multiverse/python/venv' -> means shared venv.
+    | All workers share this virtual environment. A venv isolates dependencies;
+    | it does not restrict filesystem access, network access, or OS permissions.
     |
     */
     'python' => [
@@ -62,6 +63,7 @@ return [
         'root_path' => 'multiverse/python',
         'venv_path' => 'multiverse/python/venv',
         'requirements_path' => 'multiverse/python/requirements.txt',
+        'allow_system_python' => false,
     ],
 
     /*
@@ -69,7 +71,8 @@ return [
     | Security Configuration
     |--------------------------------------------------------------------------
     |
-    | Control the static analysis checks.
+    | Best-effort substring checks on the entry point only. This does not
+    | inspect imports or make untrusted code safe to execute.
     |
     */
     'security' => [
@@ -86,22 +89,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Timeout Configuration
+    | Process Limits
     |--------------------------------------------------------------------------
     |
-    | Default timeout for worker execution in seconds.
-    | Set to null for unlimited execution time.
-    | Can be overridden per-worker by passing '_timeout' in the payload.
+    | Input and combined stdout/stderr limits are measured in bytes.
+    | Only allowlisted parent environment variables reach the subprocess.
     |
     */
-    'timeout' => null, // Unlimited by default
+    'process' => [
+        'max_input_bytes' => 10 * 1024 * 1024,
+        'max_output_bytes' => 10 * 1024 * 1024,
+        'env_allowlist' => [
+            'PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE',
+        ],
+    ],
 
     /*
     |--------------------------------------------------------------------------
     | Logging Configuration
     |--------------------------------------------------------------------------
     |
-    | Configure automatic error logging for failed workers.
+    | Log worker metadata only. Payloads, stdout, and stderr are never logged.
     |
     */
     'logging' => [

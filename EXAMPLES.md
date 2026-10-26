@@ -1,6 +1,6 @@
 # Examples
 
-This file contains practical examples of using MadeItEasyTools/Multiverse in real-world scenarios.
+These examples use Multiverse to run trusted Python workers from Laravel. Python is the package's only supported runtime. See the [README](README.md) for the project direction and setup instructions.
 
 ## Table of Contents
 
@@ -41,9 +41,9 @@ if __name__ == "__main__":
 **Laravel Usage:**
 
 ```php
-use MadeItEasyTools\Multiverse\Facades\MultiWorker;
+use MadeItEasyTools\Multiverse\Facades\Multiverse;
 
-$result = MultiWorker::run('echo', [
+$result = Multiverse::run('echo', [
     'message' => 'Hello from Laravel!'
 ]);
 
@@ -102,7 +102,7 @@ if __name__ == "__main__":
 **Laravel Usage:**
 
 ```php
-$result = MultiWorker::run('calculator', [
+$result = Multiverse::run('calculator', [
     'a' => 10,
     'b' => 5,
     'operation' => 'multiply'
@@ -180,7 +180,7 @@ if __name__ == "__main__":
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use MadeItEasyTools\Multiverse\Facades\MultiWorker;
+use MadeItEasyTools\Multiverse\Facades\Multiverse;
 use Illuminate\Support\Facades\Storage;
 
 class ImageController extends Controller
@@ -198,7 +198,7 @@ class ImageController extends Controller
         $fullPath = Storage::path($path);
 
         // Resize using Python worker
-        $result = MultiWorker::run('image_resizer', [
+        $result = Multiverse::run('image_resizer', [
             'image_url' => $fullPath,
             'width' => $validated['width'],
             'height' => $validated['height'],
@@ -333,7 +333,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use MadeItEasyTools\Multiverse\Facades\MultiWorker;
+use MadeItEasyTools\Multiverse\Facades\Multiverse;
 use App\Models\ScrapedData;
 
 class ScrapeWebsiteJob implements ShouldQueue
@@ -347,7 +347,7 @@ class ScrapeWebsiteJob implements ShouldQueue
 
     public function handle(): void
     {
-        $result = MultiWorker::run('scraper', [
+        $result = Multiverse::run('scraper', [
             'url' => $this->url,
             'selector' => $this->selector,
         ]);
@@ -470,7 +470,7 @@ Route::post('/api/sentiment', function (Request $request) {
         'text' => 'required|string|max:1000'
     ]);
 
-    $result = MultiWorker::run('sentiment', [
+    $result = Multiverse::run('sentiment', [
         'text' => $validated['text']
     ]);
 
@@ -489,7 +489,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Models\User;
 use Illuminate\Http\Request;
-use MadeItEasyTools\Multiverse\Facades\MultiWorker;
+use MadeItEasyTools\Multiverse\Facades\Multiverse;
 use Illuminate\Support\Facades\Hash;
 
 class RegisterController extends Controller
@@ -508,7 +508,7 @@ class RegisterController extends Controller
         $fullPath = storage_path('app/' . $photoPath);
 
         // Verify face exists in photo
-        $faceCheck = MultiWorker::run('face_detector', [
+        $faceCheck = Multiverse::run('face_detector', [
             'image_path' => $fullPath
         ]);
 
@@ -541,7 +541,7 @@ class RegisterController extends Controller
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use MadeItEasyTools\Multiverse\Facades\MultiWorker;
+use MadeItEasyTools\Multiverse\Facades\Multiverse;
 use App\Models\Sale;
 
 class GenerateMonthlyReport extends Command
@@ -556,7 +556,7 @@ class GenerateMonthlyReport extends Command
             ->toArray();
 
         // Generate charts using Python (matplotlib)
-        $result = MultiWorker::run('chart_generator', [
+        $result = Multiverse::run('chart_generator', [
             'data' => $sales,
             'chart_type' => 'bar',
             'title' => 'Monthly Sales Report'
@@ -581,7 +581,7 @@ class GenerateMonthlyReport extends Command
 namespace App\Http\Controllers\Api;
 
 use Illuminate\Http\Request;
-use MadeItEasyTools\Multiverse\Facades\MultiWorker;
+use MadeItEasyTools\Multiverse\Facades\Multiverse;
 
 class ImageFilterController extends Controller
 {
@@ -595,7 +595,7 @@ class ImageFilterController extends Controller
         $path = $request->file('image')->store('temp');
         $fullPath = storage_path('app/' . $path);
 
-        $result = MultiWorker::run('image_filter', [
+        $result = Multiverse::run('image_filter', [
             'image_path' => $fullPath,
             'filter' => $validated['filter']
         ]);
@@ -624,7 +624,7 @@ class ImageFilterController extends Controller
 namespace Tests\Feature;
 
 use Tests\TestCase;
-use MadeItEasyTools\Multiverse\Facades\MultiWorker;
+use MadeItEasyTools\Multiverse\Facades\Multiverse;
 
 class ImageProcessingTest extends TestCase
 {
@@ -632,7 +632,7 @@ class ImageProcessingTest extends TestCase
     {
         $testImage = public_path('test-assets/sample.jpg');
 
-        $result = MultiWorker::run('image_resizer', [
+        $result = Multiverse::run('image_resizer', [
             'image_url' => $testImage,
             'width' => 500,
             'height' => 500
@@ -649,7 +649,7 @@ class ImageProcessingTest extends TestCase
 
     public function test_handles_invalid_image()
     {
-        $result = MultiWorker::run('image_resizer', [
+        $result = Multiverse::run('image_resizer', [
             'image_url' => '/nonexistent/image.jpg',
             'width' => 500,
             'height' => 500
@@ -671,7 +671,7 @@ Always wrap worker calls in try-catch:
 
 ```php
 try {
-    $result = MultiWorker::run('my_worker', $data);
+    $result = Multiverse::run('my_worker', $data);
 
     if ($result['status'] === 'success') {
         // Handle success
@@ -697,7 +697,7 @@ $validated = $request->validate([
     'width' => 'required|integer|min:1|max:4000',
 ]);
 
-$result = MultiWorker::run('image_resizer', $validated);
+$result = Multiverse::run('image_resizer', $validated);
 ```
 
 ### 3. Queue Long-Running Tasks
@@ -712,6 +712,6 @@ dispatch(new ProcessImageJob($imageUrl))->onQueue('workers');
 $cacheKey = 'worker:sentiment:' . md5($text);
 
 $result = Cache::remember($cacheKey, 3600, function () use ($text) {
-    return MultiWorker::run('sentiment', ['text' => $text]);
+    return Multiverse::run('sentiment', ['text' => $text]);
 });
 ```

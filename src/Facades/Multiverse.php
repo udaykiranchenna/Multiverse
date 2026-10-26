@@ -8,10 +8,10 @@ use Illuminate\Support\Facades\Facade;
 use MadeItEasyTools\Multiverse\WorkerManager;
 
 /**
- * @method static array run(string $workerName, array $payload = [])
+ * @method static array run(string $workerName, array $payload = [], array $options = [])
  * @method static \MadeItEasyTools\Multiverse\Contracts\LanguageDriver driver(string $driver)
  *
- * @see \MadeItEasyTools\Multiverse\WorkerManager
+ * @see WorkerManager
  */
 class Multiverse extends Facade
 {

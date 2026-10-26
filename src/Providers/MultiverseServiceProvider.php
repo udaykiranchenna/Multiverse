@@ -25,7 +25,7 @@ class MultiverseServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(ProcessRunner::class, function ($app) {
-            return new ProcessRunner;
+            return new ProcessRunner($app['config']);
         });
     }
 

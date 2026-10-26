@@ -8,7 +8,6 @@
 *.swp
 *.swo
 *~
-/tests
 /phpunit.xml
 TESTING_CLEANUP.md
 VERIFICATION_REPORT.md

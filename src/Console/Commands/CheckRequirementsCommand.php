@@ -9,7 +9,7 @@ use Symfony\Component\Process\Process;
 
 class CheckRequirementsCommand extends Command
 {
-    protected $signature = 'multiverse:check {--lang=python : Language driver to check (python)}';
+    protected $signature = 'multiverse:check {--lang=python : Python runtime to check (python only)}';
 
     protected $description = 'Check server requirements for Multiverse';
 

@@ -9,13 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 
-- Node.js driver support
-- Go language support
 - Worker events (WorkerExecuting, WorkerExecuted, WorkerFailed)
 - Performance monitoring dashboard
 - Worker versioning system
 - Async worker execution
 - Worker output streaming
+
+---
+
+## [3.0.0] - 2026-10-26
+
+### Security
+
+- Enforce a finite 60-second default timeout and a configurable 300-second maximum; remove the duplicate unlimited default.
+- Move trusted driver, timeout, and environment options to the third `run()` argument. Reject legacy `driver` and `_timeout` payload keys with migration guidance.
+- Limit stdin and combined stdout/stderr to configurable positive byte budgets (10 MiB each by default); stop the process on output overflow.
+- Inherit only allowlisted parent environment variables; permit explicit trusted overrides.
+- Log failure metadata without payloads, rendered HTML, command output, or raw exception messages. Invalid or scalar JSON now throws instead of returning raw output.
+- Validate worker/driver names strictly and reject script paths and symlink targets outside the configured workers directory.
+- Require the configured Python venv unless system Python is explicitly enabled; apply pip timeouts consistently.
+- Clarify that entry-point substring checks and Python venvs are not sandboxes. OS memory, concurrency, filesystem, network, and descendant-process restrictions require deployment controls.
+
+### Changed
+
+- Focus Multiverse exclusively on Python. The original multi-language plan has been dropped; other language runtimes are no longer planned. Update package documentation and descriptions to match.
+
+- This major release includes the breaking API changes above. Existing two-argument calls with ordinary payloads continue to work.
+- Reject unsupported/path-like generator languages before writes; escape cleanup patterns and validate worker names before searching processes.
+- `multiverse:run` accepts `--lang` and `--timeout` as separate controls and returns failure for invalid input or execution errors.
+- Preserve the package's PHPUnit regression suite in Git and use local Composer test binaries.
 
 ---
 
